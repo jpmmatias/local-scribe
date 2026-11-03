@@ -1,0 +1,54 @@
+# v0 sandbox internal files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+.snowflake/
+.design-cache/
+.v0-trash/
+.vercel/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+.aws/
+*.pem
+*.key
+
+# Common ignores
+node_modules
+dist/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+.build/
+src-tauri/resources/sources/
+src-tauri/resources/licenses/
+*.tsbuildinfo
+.next/
+.DS_Store
+Thumbs.db
+*.log
+coverage/
+.pytest_cache/
+__pycache__/
+.venv/
+*.bundle
+
+# Local editor state
+.cursor/
+.idea/
+*.swp
+*.swo
+
+# Downloaded speech models
+*.gguf
+ggml-*.bin
+
+# Personal transcription export (not a development fixture)
+/entregaetapa4joao.txt
+
+# Built installers
+release/
