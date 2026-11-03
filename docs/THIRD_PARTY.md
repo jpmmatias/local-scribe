@@ -1,0 +1,16 @@
+# Bundled components
+
+LocalScribe runs FFmpeg and whisper.cpp as separate executables. No Python or server is required at runtime.
+
+- **whisper.cpp v1.8.3**: MIT, https://github.com/ggml-org/whisper.cpp/tree/v1.8.3 . Retain its copyright and license notice. The build script includes the complete source archive and MIT notice in application resources. Both the baseline and AVX2 CPU executables use this same pinned source; the build manifest records their configurations and hashes.
+- **FFmpeg/FFprobe 7.1.1**: built from https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz with GPL, nonfree, network protocols and external codec libraries disabled. The bundled recipe builds LGPL 2.1-or-later components. Its LGPL notice, complete unmodified source, exact configuration/build script and build manifest accompany the application resources. Users can rebuild and replace the standalone executables. Do not impose restrictions on debugging modifications of these components. See https://ffmpeg.org/legal.html . Publish the same sources beside installers on your download site and retain notices when distributing a release. System FFmpeg binaries are for development only and may have a different license/configuration.
+- **Whisper weights**: multilingual GGML conversions distributed by the whisper.cpp maintainer at https://huggingface.co/ggerganov/whisper.cpp ; MIT model card. OpenAI Whisper code and weights: https://github.com/openai/whisper/blob/main/LICENSE . No model is bundled by default. Preserve the upstream MIT notice if distributing weights. Base adds 147,951,465 bytes (about 148 MB before installer compression); Medium adds about 1.53 GB. Runtime downloads are pinned to revision `5359861c739e955e79d9a303bcbc70fb988958b1` with the upstream Git LFS SHA-256 values checked into `model-catalog.json`.
+- **Tauri, React, Vite, TypeScript and Rust crates**: retain their dependency license notices in release distributions. Generate an inventory from the resolved Cargo/pnpm lockfiles before shipping; these lockfiles must be resolved on a network-enabled build machine.
+
+The installer source archives add approximately 19 MB. They do not include training data or the test fixtures. No Windows or macOS build is claimed tested.
+
+## Test recordings
+
+`tests/fixtures/jfk.wav` is whisper.cpp v1.8.3's John F. Kennedy inaugural address excerpt. The expected English phrase is “And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.” The sample comes from an MIT-licensed project; the underlying US federal speech is public domain in the US.
+
+`tests/fixtures/fleurs-pt.wav` is one Brazilian Portuguese test utterance from Google's FLEURS corpus (`pt_br`, test split, row ID 1660). Its reference transcription is “O romantismo tinha um grande elemento de determinismo cultural, extraído de escritores como Goethe, Fichte e Schlegel.” FLEURS is marked CC BY 4.0; attribution: Google, “FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech,” https://huggingface.co/datasets/google/fleurs . The recording is included for development tests and is not bundled in the installer. Whisper Base on the tested CPU sidecar correctly transcribed the sentence with minor proper-name spelling errors and produced segment timestamps; this is a smoke test, not a general accuracy guarantee.
