@@ -223,13 +223,16 @@ impl Manager {
                 target.progress = None;
             } else {
                 match result {
-                    Ok((transcript, raw)) => {
+                    Ok(whisper::InferenceOutput {
+                        transcript,
+                        source_json,
+                    }) => {
                         target.status = Status::Completed;
                         target.progress = Some(100.0);
                         next.records.push(Record {
                             original: transcript.clone(),
                             edited: transcript,
-                            source_json: raw,
+                            source_json,
                         });
                     }
                     Err(e) => {
@@ -260,7 +263,7 @@ impl Manager {
         &self,
         job: &TranscriptionJob,
         token: &CancellationToken,
-    ) -> Result<(Transcript, String)> {
+    ) -> Result<whisper::InferenceOutput> {
         self.stage(&job.id, Status::Extracting, token).await?;
         let model = self.models.verify(&job.model, token).await?;
         let media = ffmpeg::inspect(&self.binaries, Path::new(&job.source_path), token).await?;

@@ -113,7 +113,7 @@ async fn run() -> localscribe_lib::errors::Result<()> {
     let (progress, _rx) = mpsc::unbounded_channel();
     let (segments, _rx) = mpsc::unbounded_channel();
     let start = Instant::now();
-    let (transcript, _) = whisper::transcribe(
+    let output = whisper::transcribe(
         &bins,
         &job,
         std::path::Path::new(&args[3]),
@@ -124,6 +124,7 @@ async fn run() -> localscribe_lib::errors::Result<()> {
         segments,
     )
     .await?;
+    let transcript = output.transcript;
     let inference_ms = start.elapsed().as_secs_f64() * 1000.0;
     let total_ms = total.elapsed().as_secs_f64() * 1000.0;
     let timestamps_valid = !transcript.segments.is_empty()

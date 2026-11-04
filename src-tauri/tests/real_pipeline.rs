@@ -63,11 +63,19 @@ async fn real_transcription_edit_export_and_restart() {
         Arc::new(|_| {}),
     )
     .await;
+    manager
+        .preferences(Preferences {
+            model: "small".into(),
+            language: "en".into(),
+        })
+        .await
+        .unwrap();
     let info = ffmpeg::inspect(&bins(), &source, &CancellationToken::new())
         .await
         .unwrap();
+    let retry_media = info.clone();
     let id = manager
-        .enqueue(info.clone(), "base".into(), language)
+        .enqueue(info.clone(), "base".into(), language.clone())
         .await
         .unwrap();
     assert_eq!(
@@ -119,7 +127,13 @@ async fn real_transcription_edit_export_and_restart() {
         "{}",
         transcript.full_text
     );
+    assert_eq!(transcript.id, id);
+    assert_eq!(transcript.job_id, id);
+    assert_eq!(transcript.model, "base");
     assert!(!transcript.segments.is_empty());
+    for (index, segment) in transcript.segments.iter().enumerate() {
+        assert_eq!(segment.id, format!("{id}-{index}"));
+    }
     assert!(transcript.segments.iter().all(|s| s.end_ms >= s.start_ms));
     let mut texts: Vec<String> = transcript.segments.iter().map(|s| s.text.clone()).collect();
     texts[0] = "Revisão com ação e Unicode 中文".into();
@@ -128,11 +142,112 @@ async fn real_transcription_edit_export_and_restart() {
         let output = localscribe_lib::services::exports::render(&edited, format).unwrap();
         assert!(String::from_utf8(output).unwrap().contains("Revisão"));
     }
-    assert_eq!(tokio::fs::read(source).await.unwrap(), before);
+    let json = localscribe_lib::services::exports::render(&edited, "json").unwrap();
+    assert_eq!(serde_json::from_slice::<Transcript>(&json).unwrap(), edited);
+    assert_eq!(
+        localscribe_lib::services::exports::render(&edited, "txt").unwrap(),
+        edited.full_text.as_bytes()
+    );
+    assert_eq!(edited.segments[0].id, transcript.segments[0].id);
+    assert_eq!(edited.segments[0].start_ms, transcript.segments[0].start_ms);
+    assert_eq!(edited.segments[0].end_ms, transcript.segments[0].end_ms);
+
+    // Cancel through the public manager during inference, then retry successfully.
+    let cancelled = manager
+        .enqueue(retry_media.clone(), "base".into(), language.clone())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let snapshot = manager.snapshot().await;
+            let job = snapshot
+                .jobs
+                .iter()
+                .find(|job| job.id == cancelled)
+                .unwrap();
+            if job.status == Status::Transcribing {
+                break;
+            }
+            assert!(
+                job.status.active(),
+                "job ended before cancellation: {:?}",
+                job.status
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    manager.cancel(&cancelled).await.unwrap();
+    assert_eq!(
+        finished(&manager, &cancelled).await.status,
+        Status::Cancelled
+    );
+    assert!(manager.transcript(&cancelled).await.is_err());
+    assert!(!root.join("work").join(&cancelled).exists());
+
+    // A real invalid-media failure is terminal, private, and does not poison the worker.
+    let invalid = temp.path().join("private-recording.wav");
+    tokio::fs::write(&invalid, b"private invalid media")
+        .await
+        .unwrap();
+    let mut invalid_media = retry_media.clone();
+    invalid_media.path = invalid.to_string_lossy().into_owned();
+    let failed = manager
+        .enqueue(invalid_media, "base".into(), language.clone())
+        .await
+        .unwrap();
+    assert_eq!(finished(&manager, &failed).await.status, Status::Failed);
+    assert!(manager.transcript(&failed).await.is_err());
+    assert!(!root.join("work").join(&failed).exists());
+    let diagnostics = tokio::fs::read_to_string(root.join("diagnostics.log"))
+        .await
+        .unwrap();
+    assert!(!diagnostics.contains("private"));
+    assert!(!diagnostics.contains(&source.to_string_lossy().to_string()));
+    assert!(!diagnostics.contains(&transcript.full_text));
+    let retried = manager
+        .enqueue(retry_media, "base".into(), language)
+        .await
+        .unwrap();
+    assert_eq!(finished(&manager, &retried).await.status, Status::Completed);
+    assert_ne!(retried, id);
+    assert!(manager
+        .transcript(&retried)
+        .await
+        .unwrap()
+        .full_text
+        .to_lowercase()
+        .contains(&expected));
+    assert!(!root.join("work").join(&retried).exists());
+    assert_eq!(tokio::fs::read(&source).await.unwrap(), before);
     assert!(!root.join("work").join(&id).exists());
     manager.shutdown().await;
     let (_, restored) = Storage::open(root).await.unwrap();
+    assert_eq!(restored.preferences.model, "small");
+    assert_eq!(restored.preferences.language, "en");
+    assert_eq!(restored.version, 1);
+    assert_eq!(restored.jobs[0].id, id);
     assert_eq!(restored.jobs[0].status, Status::Completed);
+    assert_eq!(
+        restored
+            .jobs
+            .iter()
+            .find(|j| j.id == cancelled)
+            .unwrap()
+            .status,
+        Status::Cancelled
+    );
+    assert_eq!(
+        restored
+            .jobs
+            .iter()
+            .find(|j| j.id == failed)
+            .unwrap()
+            .status,
+        Status::Failed
+    );
+    assert_eq!(restored.records.len(), 2);
     assert_eq!(restored.records[0].edited, edited);
     assert_eq!(restored.records[0].original, transcript);
 }
@@ -171,4 +286,19 @@ async fn cancellation_reaps_the_real_child() {
         .unwrap()
         .unwrap();
     assert_eq!(result.err().unwrap().code, "cancelled");
+}
+
+async fn finished(manager: &Manager, id: &str) -> TranscriptionJob {
+    tokio::time::timeout(Duration::from_secs(600), async {
+        loop {
+            let snapshot = manager.snapshot().await;
+            let job = snapshot.jobs.iter().find(|job| job.id == id).unwrap();
+            if !job.status.active() {
+                return job.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("job must reach a terminal state")
 }

@@ -7,8 +7,18 @@ use std::{path::Path, time::Duration};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-// The business layer consumes normalized transcripts. A future GPU adapter can
-// implement this contract without changing commands, state, or the editor.
+/// Completed inference: normalized editor/export data and private engine output.
+/// Only the job manager persists this result; live segments are provisional.
+pub struct InferenceOutput {
+    pub transcript: Transcript,
+    pub source_json: String,
+}
+
+/// Runs the existing Whisper adapter on verified model weights and prepared
+/// 16 kHz mono PCM audio. The caller owns the output directory and removes it
+/// after this future returns, including on failure or cancellation. `process`
+/// owns the child and reaps it before returning on cancellation or timeout.
+/// No model downloads, preference changes, or persistence happen here.
 pub async fn transcribe(
     bins: &Binaries,
     job: &TranscriptionJob,
@@ -18,7 +28,7 @@ pub async fn transcribe(
     cancel: &CancellationToken,
     progress: mpsc::UnboundedSender<u64>,
     segments: mpsc::UnboundedSender<TranscriptSegment>,
-) -> Result<(Transcript, String)> {
+) -> Result<InferenceOutput> {
     let args = vec![
         "-m".into(),
         model.as_os_str().into(),
@@ -49,10 +59,18 @@ pub async fn transcribe(
         return Err(process::process_error("inference", "A transcrição falhou. Tente um modelo menor e feche outros aplicativos para liberar memória.", &out.stderr));
     }
     let raw = tokio::fs::read_to_string(output_prefix.with_extension("json")).await?;
-    Ok((normalize(&raw, job)?, raw))
+    Ok(InferenceOutput {
+        transcript: normalize(&raw, job)?,
+        source_json: raw,
+    })
 }
 pub fn normalize(raw: &str, job: &TranscriptionJob) -> Result<Transcript> {
-    let value: serde_json::Value = serde_json::from_str(raw)?;
+    let value: serde_json::Value = serde_json::from_str(raw).map_err(|_| {
+        AppError::new(
+            "inference_output",
+            "O processador retornou uma transcrição inválida.",
+        )
+    })?;
     let rows = value["transcription"].as_array().ok_or_else(|| {
         AppError::new(
             "inference_output",

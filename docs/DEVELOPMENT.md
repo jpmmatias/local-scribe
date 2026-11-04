@@ -42,6 +42,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --no-default-features \
 
 Linux x86_64 is the only configured and tested desktop target. Windows and macOS need target-specific sidecars, signing, packaging, and validation before release. The test environment used the installed WebKitGTK runtime libraries through a local `pkg-config` shim because development metadata packages were absent; normal builds should install Tauri's documented development packages instead.
 
+See [the inference contract and T01 validation evidence](INFERENCE_CONTRACT.md) for resource ownership, failure categories and compatibility checks.
+
 ## CPU selection and progress
 
 Linux x86_64 ships two whisper.cpp v1.8.3 executables: `localscribe-whisper-cli`

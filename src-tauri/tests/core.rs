@@ -85,3 +85,10 @@ async fn restart_marks_incomplete_jobs_and_cleans_only_derived_data() {
     assert!(!store.root.join("work/temporary.wav").exists());
     assert_eq!(tokio::fs::read(source).await.unwrap(), b"original");
 }
+
+#[test]
+fn malformed_engine_output_has_an_inference_error_without_private_contents() {
+    let error = normalize("private transcript: invalid JSON", &job()).unwrap_err();
+    assert_eq!(error.code, "inference_output");
+    assert!(!error.message.contains("private transcript"));
+}
